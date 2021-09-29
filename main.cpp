@@ -9,6 +9,31 @@
 using std::isnan;
 using std::isfinite;
 
+class Timer {
+  private:
+    double t1;
+    double t2;
+    bool running;
+  public:
+    Timer() : t1(0), t2(0), running(false) {}
+    void start() {
+      assert(!running);
+      t1 = MPI_Wtime();
+      running = true;
+    }
+
+    void stop() {
+      assert(running);
+      t2 = MPI_Wtime();
+      running = false;
+    }
+
+    double elapsed() {
+      assert(!running);
+      return t2 - t1;
+    }
+};
+
 #ifdef VERBOSE 
 void log(const char* format, ...) {
   va_list ptr;
@@ -61,6 +86,10 @@ int main(int argc, char *argv[]) {
 
   MPI_Init(&argc, &argv);
 
+#ifdef BENCHMARK
+  Timer timer{};
+#endif
+
   int world_size = 0;
   int world_rank = 0;
 
@@ -68,9 +97,21 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
   if (world_rank == 0) {
-    log("Main process: %lf\n", integrate_trapeze(0, 1, n_samples, integrated_func));
+#ifdef BENCHMARK
+    timer.start();
+#endif
+    double single_process_integral = integrate_trapeze(0, 1, n_samples, integrated_func);
+    log("Main process: %lf\n", single_process_integral);
+#ifdef BENCHMARK
+    timer.stop();
+    printf("%lf\n", timer.elapsed());
+#endif
   }
-  
+ 
+#ifdef BENCHMARK
+  if(world_rank == 0)
+    timer.start();
+#endif
   double local_integral = 0;
 
   const double sample_size = 1.f / n_samples;
@@ -92,6 +133,13 @@ int main(int argc, char *argv[]) {
   if(world_rank == 0) {
     log("Main process parallel: %lf\n", integral_value);
   }
+
+#ifdef BENCHMARK
+  if(world_rank == 0) {
+    timer.stop();
+    printf("%lf\n", timer.elapsed());
+  }
+#endif
 
   MPI_Finalize();
 
