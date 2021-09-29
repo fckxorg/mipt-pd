@@ -9,6 +9,19 @@
 using std::isnan;
 using std::isfinite;
 
+#ifdef VERBOSE 
+void log(const char* format, ...) {
+  va_list ptr;
+  va_start(ptr, format);
+  vprintf(format, ptr);
+  va_end(ptr);
+}
+#else 
+void log(...) {
+ /* Empty body. */ 
+}
+#endif
+
 double integrated_func(double x) {
   assert(!isnan(x));
   assert(isfinite(x));
@@ -21,11 +34,13 @@ double integrate_trapeze(double from, double to, uint64_t samples, double (*f)(d
   assert(!isnan(to));
   assert(isfinite(from));
   assert(isfinite(to));
-  assert(samples > 0);
   assert(f != NULL);
   assert(to >= from);
   
   if(from == to) 
+    return 0;
+
+  if(samples == 0)
     return 0;
 
   double integral = 0;
@@ -53,34 +68,29 @@ int main(int argc, char *argv[]) {
   MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
 
   if (world_rank == 0) {
-    printf("Main process: %lf\n", integrate_trapeze(0, 1, n_samples, integrated_func));
+    log("Main process: %lf\n", integrate_trapeze(0, 1, n_samples, integrated_func));
   }
   
-  uint64_t samples_per_process = n_samples / world_size;
-  if(world_rank == 0)
-    /* 
-    ** If sample number is not a multiple of world_size, the main process will
-    ** take care of leftover samples
-    */
-    samples_per_process += n_samples % world_size;
-  
-  const double sample_size = 1.f / n_samples;
-
   double local_integral = 0;
-  double from = world_rank * samples_per_process * sample_size;
-  if (world_rank != 0)
-    from += sample_size * (n_samples % world_size);
 
+  const double sample_size = 1.f / n_samples;
+  uint64_t samples_per_process = ceil(static_cast<double>(n_samples) / world_size);
+  
+  double from = world_rank * samples_per_process * sample_size;
+  if(world_rank == world_size - 1)
+    samples_per_process = n_samples - samples_per_process * (world_size - 1); 
+  
   double to = from + samples_per_process * sample_size;
+
   local_integral = integrate_trapeze(from, to, samples_per_process, integrated_func);
-  printf("Subprocess [%d]: %lf on [%lf, %lf]\n", world_rank, local_integral, from, to);
+  log("Subprocess [%d]: %lf on [%lf, %lf]\n", world_rank, local_integral, from, to);
 
   double integral_value = 0;
 
   MPI_Reduce(&local_integral, &integral_value, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
   
   if(world_rank == 0) {
-    printf("Main process parallel: %lf\n", integral_value);
+    log("Main process parallel: %lf\n", integral_value);
   }
 
   MPI_Finalize();
