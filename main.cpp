@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <cassert>
 #include <mpi.h>
+#include <vector>
 
 using std::isnan;
 using std::isfinite;
@@ -118,13 +119,13 @@ int main(int argc, char *argv[]) {
   uint64_t samples_per_process = ceil(static_cast<double>(n_samples) / world_size);
   double local_from = 0;
   double local_to = 0;
-
-  double* from = nullptr;
-  double* to = nullptr;
+  
+  std::vector<double> from = {};
+  std::vector<double> to = {};
   
   if (world_rank == 0) {
-    from = new double[world_size]();
-    to = new double[world_size]();
+    from.assign(world_size, 0);
+    to.assign(world_size, 0);
     
     for(int i = 0; i < world_size; ++i) {
       from[i] = i * samples_per_process * sample_size;
@@ -138,13 +139,8 @@ int main(int argc, char *argv[]) {
     }
   }
 
-  MPI_Scatter(from, 1, MPI_DOUBLE, &local_from, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-  MPI_Scatter(to, 1, MPI_DOUBLE, &local_to, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
-
-  if(world_rank == 0){
-    delete[] from;
-    delete[] to;
-  }
+  MPI_Scatter(from.data(), 1, MPI_DOUBLE, &local_from, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Scatter(to.data(), 1, MPI_DOUBLE, &local_to, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
 
   local_integral = integrate_trapeze(local_from, local_to, samples_per_process, integrated_func);
   log("Subprocess [%d]: %lf on [%lf, %lf]\n", world_rank, local_integral, local_from, local_to);
