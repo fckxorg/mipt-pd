@@ -116,15 +116,38 @@ int main(int argc, char *argv[]) {
 
   const double sample_size = 1.f / n_samples;
   uint64_t samples_per_process = ceil(static_cast<double>(n_samples) / world_size);
-  
-  double from = world_rank * samples_per_process * sample_size;
-  if(world_rank == world_size - 1)
-    samples_per_process = n_samples - samples_per_process * (world_size - 1); 
-  
-  double to = from + samples_per_process * sample_size;
+  double local_from = 0;
+  double local_to = 0;
 
-  local_integral = integrate_trapeze(from, to, samples_per_process, integrated_func);
-  log("Subprocess [%d]: %lf on [%lf, %lf]\n", world_rank, local_integral, from, to);
+  double* from = nullptr;
+  double* to = nullptr;
+  
+  if (world_rank == 0) {
+    from = new double[world_size]();
+    to = new double[world_size]();
+    
+    for(int i = 0; i < world_size; ++i) {
+      from[i] = i * samples_per_process * sample_size;
+      if(i == world_size - 1) {
+        int local_samples = n_samples - samples_per_process * (world_size - 1); 
+        to[i] = from[i] + local_samples * sample_size;
+      }
+      else {
+        to[i] = from[i] + samples_per_process * sample_size;
+      }
+    }
+  }
+
+  MPI_Scatter(from, 1, MPI_DOUBLE, &local_from, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+  MPI_Scatter(to, 1, MPI_DOUBLE, &local_to, 1, MPI_DOUBLE, 0, MPI_COMM_WORLD);
+
+  if(world_rank == 0){
+    delete[] from;
+    delete[] to;
+  }
+
+  local_integral = integrate_trapeze(local_from, local_to, samples_per_process, integrated_func);
+  log("Subprocess [%d]: %lf on [%lf, %lf]\n", world_rank, local_integral, local_from, local_to);
 
   double integral_value = 0;
 
@@ -140,7 +163,7 @@ int main(int argc, char *argv[]) {
     printf("%lf\n", timer.elapsed());
   }
 #endif
-
+  
   MPI_Finalize();
 
   return 0;
