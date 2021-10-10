@@ -7,4 +7,4 @@
 #SBATCH --comment="Run mpi from config"
 #SBATCH --output=output.txt
 #SBATCH --error=error.txt
-mpiexec ./a.out
+mpiexec ./a.out $1
